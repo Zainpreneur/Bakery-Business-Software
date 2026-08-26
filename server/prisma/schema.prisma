@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite has no native enum type, so enum-like fields below are plain Strings.
+// Valid values are enforced at the API layer with Zod:
+//   Role: ADMIN | MANAGER | STAFF
+//   OrderStatus: PENDING | IN_PROGRESS | READY | COMPLETED | CANCELLED
+//   OrderType: WALK_IN | PHONE | ONLINE | CATERING
+//   PaymentStatus: UNPAID | PARTIAL | PAID
+//   InventoryTxnType: PURCHASE | USAGE | ADJUSTMENT | WASTE
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          String    @default("STAFF")
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  ordersCreated Order[]              @relation("OrderCreatedBy")
+  inventoryTxns InventoryTransaction[]
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  createdAt   DateTime @default(now())
+
+  ingredients Ingredient[]
+}
+
+model Ingredient {
+  id                String   @id @default(cuid())
+  name              String
+  unit              String   // e.g. g, kg, ml, l, unit
+  costPerUnit        Float    @default(0)
+  quantityInStock   Float    @default(0)
+  reorderThreshold  Float    @default(0)
+  supplierId        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  supplier          Supplier? @relation(fields: [supplierId], references: [id])
+  recipeItems       RecipeItem[]
+  transactions      InventoryTransaction[]
+
+  @@index([supplierId])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String   @default("General")
+  price       Float
+  isActive    Boolean  @default(true)
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  recipeItems RecipeItem[]
+  orderItems  OrderItem[]
+}
+
+model RecipeItem {
+  id           String @id @default(cuid())
+  productId    String
+  ingredientId String
+  quantity     Float // amount of ingredient (in ingredient's unit) needed per single product unit
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, ingredientId])
+  @@index([productId])
+  @@index([ingredientId])
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  orderNumber   String        @unique
+  customerId    String?
+  status        String        @default("PENDING")
+  orderType     String        @default("WALK_IN")
+  paymentStatus String        @default("UNPAID")
+  dueDate       DateTime?
+  notes         String?
+  totalAmount   Float         @default(0)
+  paidAmount    Float         @default(0)
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  createdBy  User?       @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  items      OrderItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  unitPrice Float
+  subtotal  Float
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model InventoryTransaction {
+  id           String           @id @default(cuid())
+  ingredientId String
+  type         String
+  quantity     Float // positive for stock in (PURCHASE), positive magnitude for USAGE/WASTE (stored as negative delta applied)
+  note         String?
+  createdById  String?
+  createdAt    DateTime         @default(now())
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  createdBy  User?      @relation(fields: [createdById], references: [id])
+
+  @@index([ingredientId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String
+  description String?
+  amount      Float
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
